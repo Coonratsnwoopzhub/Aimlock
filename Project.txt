@@ -1,0 +1,150 @@
+--// Services
+local uis = game:GetService("UserInputService")
+local plrs = game:GetService("Players")
+local rs = game:GetService("RunService")
+local cam = workspace.CurrentCamera
+local lp = plrs.LocalPlayer
+local mouse = lp:GetMouse()
+
+--// Variables
+local aim, silent, target, searching = false, true, nil, false
+local sfov, bfov, oy = 60, 110, 63
+local strength, zmul, smooth = 1, 1.5, 2
+local ui_col, accent = Color3.fromRGB(20, 20, 20), Color3.fromRGB(200, 50, 50)
+local aimConn, runConn
+
+--// GUI
+local sg = Instance.new("ScreenGui", game.CoreGui)
+local mf = Instance.new("Frame", sg)
+mf.Size, mf.Position = UDim2.new(0, 500, 0, 400), UDim2.new(0.35, 0, 0.2, 0)
+mf.BackgroundColor3, mf.BorderSizePixel, mf.BorderColor3 = ui_col, 2, accent
+mf.Active, mf.Draggable = true, true
+
+local title = Instance.new("TextLabel", mf)
+title.Text, title.Size, title.BackgroundColor3 = "WRATZ | UNIVERSAL CAMLOCK + SILENT AIM V43", UDim2.new(1, 0, 0, 40), accent
+title.TextColor3, title.Font, title.TextSize = Color3.new(1, 1, 1), Enum.Font.GothamBlack, 20
+
+local status = Instance.new("TextLabel", mf)
+status.Text, status.Size, status.Position = "Status: OFF", UDim2.new(1, 0, 0, 50), UDim2.new(0, 0, 0, 50)
+status.BackgroundColor3, status.TextColor3, status.Font, status.TextSize = ui_col, Color3.new(1, 1, 1), Enum.Font.GothamBold, 18
+
+local reset = Instance.new("TextButton", mf)
+reset.Text, reset.Size, reset.Position = "RESET GUI", UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, 110)
+reset.BackgroundColor3, reset.TextColor3, reset.Font, reset.TextSize = accent, Color3.new(1, 1, 1), Enum.Font.GothamBold, 16
+
+local destroy = Instance.new("TextButton", mf)
+destroy.Text, destroy.Size, destroy.Position = "DESTROY SCRIPT", UDim2.new(1, 0, 0, 40), UDim2.new(0, 0, 0, 160)
+destroy.BackgroundColor3, destroy.TextColor3, destroy.Font, destroy.TextSize = accent, Color3.new(1, 1, 1), Enum.Font.GothamBold, 16
+
+reset.MouseButton1Click:Connect(function() sg:Destroy() end)
+
+--// FOV Circles
+local function fov(s, c)
+    local d = Drawing.new("Circle")
+    d.Radius, d.Filled, d.Color, d.Thickness, d.Transparency, d.Visible = s, false, c, 2.5, 1, true
+    return d
+end
+
+local sf, bf = fov(sfov, Color3.new(1, 0, 0)), fov(bfov, Color3.new(1, 0, 0))
+
+local function updateFOV()
+    local p = Vector2.new(mouse.X, mouse.Y + oy)
+    sf.Position, bf.Position = p, p
+end
+
+local function isAlive(p)
+    return p and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0
+end
+
+local function isVisible(p)
+    if p and p.Character and p.Character:FindFirstChild("Head") then
+        local h, hp = p.Character.Head, p.Character.Head.Position
+        local r = RaycastParams.new()
+        r.FilterDescendantsInstances = {lp.Character}
+        r.FilterType = Enum.RaycastFilterType.Blacklist
+        local o = workspace:Raycast(cam.CFrame.Position, (hp - cam.CFrame.Position).Unit * (hp - cam.CFrame.Position).Magnitude, r)
+        return not o or o.Instance:IsDescendantOf(p.Character)
+    end
+    return false
+end
+
+local function closest(fov)
+    local c, d = nil, fov
+    local p = Vector2.new(mouse.X, mouse.Y + oy)
+    for _, v in pairs(plrs:GetPlayers()) do
+        if v ~= lp and isAlive(v) and v.Character:FindFirstChild("Head") and isVisible(v) then
+            if v.Team ~= lp.Team or v.Team == nil then
+                local h, hp, os = v.Character.Head, cam:WorldToViewportPoint(v.Character.Head.Position)
+                if os then
+                    local m = (p - Vector2.new(hp.X, hp.Y)).Magnitude
+                    if m < d then c, d = v, m end
+                end
+            end
+        end
+    end
+    return c
+end
+
+local function camlock(t)
+    if t and t.Character and t.Character:FindFirstChild("Head") then
+        local h, hp, cp = t.Character.Head, t.Character.Head.Position, cam.CFrame.Position
+        local z = (cam.FieldOfView <= 70) and zmul or 1
+        cam.CFrame = cam.CFrame:Lerp(CFrame.lookAt(cp, hp), (strength * z) / smooth)
+    end
+end
+
+local function silentaim()
+    if silent and target and isAlive(target) and target.Character:FindFirstChild("Head") then
+        local h, t = target.Character.Head, lp.Character and lp.Character:FindFirstChildOfClass("Tool")
+        if t and t:FindFirstChild("Handle") then t.Handle.Position = h.Position end
+    end
+end
+
+local function toggleAimbot()
+    if aim then
+        aim, target, searching = false, nil, false
+        sf.Color, bf.Color, status.Text = Color3.new(1, 0, 0), Color3.new(1, 0, 0), "Status: OFF"
+    else
+        aim, searching = true, true
+        while searching do
+            sf.Color, status.Text = Color3.new(1, 1, 0), "Searching... (Small FOV)"
+            wait(0.5)
+            target = closest(sfov)
+            if target then
+                sf.Color, status.Text = Color3.new(0, 1, 0), "LOCKED (Small FOV)"
+                searching = false
+                break
+            end
+
+            sf.Color, bf.Color, status.Text = Color3.new(1, 0, 0), Color3.new(1, 1, 0), "Searching... (Big FOV)"
+            wait(0.5)
+            target = closest(bfov)
+            if target then
+                bf.Color, status.Text = Color3.new(0, 1, 0), "LOCKED (Big FOV)"
+                searching = false
+                break
+            end
+
+            bf.Color, status.Text = Color3.new(1, 0, 0), "No target found... Retrying"
+        end
+    end
+end
+
+aimConn = uis.InputBegan:Connect(function(i, g)
+    if not g and i.KeyCode == Enum.KeyCode.Z then
+        toggleAimbot()
+    end
+end)
+
+runConn = rs.RenderStepped:Connect(function()
+    if aim and target then
+        if not isAlive(target) then
+            target = nil
+            toggleAimbot()
+        else
+            camlock(target)
+            silentaim()
+        end
+    end
+    updateFOV()
+end)
